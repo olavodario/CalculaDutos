@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,12 +8,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <header>
         <div class="container">
-            <h1><span class="icon">💨</span> CalculaDutos</h1>
+            <h1>CalculaDutos</h1>
         </div>
     </header>
 
@@ -21,7 +24,7 @@
         <section class="input-panel">
             <div class="card">
                 <h2>Cálculo Unitário</h2>
-                
+
                 <!-- Calculation Mode Selector -->
                 <div class="form-group">
                     <label>Fixar Parâmetro:</label>
@@ -69,7 +72,8 @@
                     <div class="form-group hidden" data-mode-input="dimensions">
                         <div class="row">
                             <div class="half">
-                                <label for="fixedWidth">Largura (mm) <span class="unit-label" id="dim1Label">/ Diâmetro</span></label>
+                                <label for="fixedWidth">Largura (mm) <span class="unit-label" id="dim1Label">/
+                                        Diâmetro</span></label>
                                 <input type="number" id="fixedWidth" placeholder="Ex: 500">
                             </div>
                             <div class="half" id="heightInputContainer">
@@ -82,7 +86,8 @@
 
                 <!-- Optional Height Constraint for Rectangular/Oval in Flow/Pressure modes -->
                 <div class="form-group" id="optionalHeightGroup">
-                    <label for="optionalHeight">Altura Fixa (mm) <span class="sub-label">(Opcional para restringir cálculo)</span></label>
+                    <label for="optionalHeight">Altura Fixa (mm) <span class="sub-label">(Opcional para restringir
+                            cálculo)</span></label>
                     <input type="number" id="optionalHeight" placeholder="Deixe vazio para automático">
                 </div>
 
@@ -125,7 +130,7 @@
                     <input type="number" id="outletFlow" placeholder="Vazão Un. (m³/h)" class="medium">
                     <button id="addOutletBtn" class="icon-btn">+</button>
                 </div>
-                
+
                 <div class="outlets-list" id="outletsList">
                     <!-- Added outlets will appear here -->
                     <div class="empty-state">Nenhuma saída adicionada neste trecho.</div>
@@ -188,4 +193,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>

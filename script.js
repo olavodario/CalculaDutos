@@ -409,9 +409,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Trigger recalc
         calculate();
-
-        // Scroll history
-        const historyCard = document.querySelector('.history-card'); // Not exact but ok
     }
 
     function renderSegments() {
@@ -434,50 +431,60 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Report ---
+    // --- Report (XLSX) ---
     function generateReport() {
         if (state.segments.length === 0) return alert('Nenhum trecho para gerar relatório.');
 
-        const data = {
-            project: "CalculaDutos Project",
-            date: new Date().toISOString(),
-            segments: state.segments
-        };
+        // Prepare Data for Excel
+        const rows = [];
 
-        // Generate XML
-        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<project>\n';
-        xml += `  <name>CalculaDutos Export</name>\n`;
-        xml += `  <date>${data.date}</date>\n  <segments>\n`;
+        state.segments.forEach(seg => {
+            const rowBase = {
+                'ID Trecho': seg.id,
+                'Vazão Trecho (m³/h)': seg.flow,
+                'Tipo Duto': seg.type,
+                'Dimensões': seg.dimensions,
+                'Velocidade (m/s)': seg.velocity,
+                'Perda de Carga (Pa/m)': seg.pressure,
+                'Total Saídas (Qtd)': seg.outlets.length,
+                'Vazão Redução (m³/h)': seg.deduction
+            };
 
-        data.segments.forEach(seg => {
-            xml += `    <segment id="${seg.id}">\n`;
-            xml += `      <flow units="m3/h">${seg.flow}</flow>\n`;
-            xml += `      <type>${seg.type}</type>\n`;
-            xml += `      <dimensions>${seg.dimensions}</dimensions>\n`;
-            xml += `      <velocity units="m/s">${seg.velocity}</velocity>\n`;
-            xml += `      <pressure_drop units="Pa/m">${seg.pressure}</pressure_drop>\n`;
-            xml += `      <outlets_count>${seg.outlets.length}</outlets_count>\n`;
-            xml += `      <outlets>\n`;
-            seg.outlets.forEach(out => {
-                xml += `        <outlet>\n`;
-                xml += `          <id>${out.id}</id>\n`;
-                xml += `          <type>${out.type}</type>\n`;
-                xml += `          <quantity>${out.qty}</quantity>\n`;
-                xml += `          <unit_flow>${out.flow}</unit_flow>\n`;
-                xml += `          <total_flow>${out.total}</total_flow>\n`;
-                xml += `        </outlet>\n`;
-            });
-            xml += `      </outlets>\n`;
-            xml += `    </segment>\n`;
+            if (seg.outlets.length === 0) {
+                rows.push({
+                    ...rowBase,
+                    'ID Saída': '-',
+                    'Tipo Saída': '-',
+                    'Qtd Saída': '-',
+                    'Vazão Un. (m³/h)': '-',
+                    'Vazão Total (m³/h)': '-'
+                });
+            } else {
+                seg.outlets.forEach(out => {
+                    rows.push({
+                        ...rowBase,
+                        'ID Saída': out.id,
+                        'Tipo Saída': out.type,
+                        'Qtd Saída': out.qty,
+                        'Vazão Un. (m³/h)': out.flow,
+                        'Vazão Total (m³/h)': out.total
+                    });
+                });
+            }
         });
-        xml += `  </segments>\n</project>`;
 
-        // Download
-        const blob = new Blob([xml], { type: 'text/xml' });
-        const url = URL.createObjectURL(blob);
-        ui.downloadLink.href = url;
-        ui.downloadLink.download = `relatorio_dutos_${Date.now()}.xml`;
-        ui.downloadLink.click();
-        URL.revokeObjectURL(url);
+        // Create Worksheet
+        const ws = XLSX.utils.json_to_sheet(rows);
+
+        // Auto-width columns
+        const wscols = Object.keys(rows[0]).map(k => ({ wch: 20 }));
+        ws['!cols'] = wscols;
+
+        // Create Workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Relatório Dutos");
+
+        // Generate File
+        XLSX.writeFile(wb, `Relatorio_Dutos_${new Date().toISOString().slice(0, 10)}.xlsx`);
     }
 });
