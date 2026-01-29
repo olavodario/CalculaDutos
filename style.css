@@ -191,6 +191,23 @@ select:focus {
     color: var(--text-secondary);
 }
 
+.warning-message {
+    margin-top: 12px;
+    padding: 10px;
+    background-color: rgba(239, 68, 68, 0.15);
+    /* Red/Danger tint */
+    border: 1px solid var(--danger-color);
+    color: #fca5a5;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    grid-column: span 2;
+    /* Span full width in grid if needed, or just block */
+}
+
 /* Outlets Section */
 .outlets-input-row {
     display: flex;

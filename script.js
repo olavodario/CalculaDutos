@@ -121,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function calculate() {
         // 1. Get Base Values
         const Q_h = parseFloat(ui.flowInput.value) || 0;
+        // Convert Flow to m3/s
         const Q_s = Q_h / 3600;
 
         if (Q_s <= 0) {
@@ -135,7 +136,37 @@ document.addEventListener('DOMContentLoaded', () => {
         let velocity = 0; // m/s
         let area = 0; // m2
 
-        // --- CALCULATION ---
+        // Constants for Air (Standard Layout)
+        const density = 1.204; // kg/m3 (Standard Air 20°C)
+        // const density = 1.034; // Value from spreadsheet example (if High Altitude/Temp)
+        const viscosity = 1.81e-5; // Pa.s (Dynamic Viscosity 20°C)
+        const roughness = 0.00015; // m (Galvanized Steel)
+
+        // Helper: Calc Pressure Drop (Darcy-Weisbach)
+        // Returns Pa/m
+        function calcPressureDrop(A_m2, Dh_m) {
+            if (A_m2 <= 0 || Dh_m <= 0) return 0;
+            const v = Q_s / A_m2;
+            const Re = (density * v * Dh_m) / viscosity;
+
+            if (Re < 2300) {
+                // Laminar
+                const f = 64 / Re;
+                return f * (1 / Dh_m) * (density * v * v) / 2;
+            } else {
+                // Turbulent - Haaland Approx
+                const epsilon = roughness;
+                const relRough = (epsilon / Dh_m);
+                // 1/sqrt(f) = -1.8 * log10( (relRough/3.7)^1.11 + 6.9/Re )
+                const term = Math.pow(relRough / 3.7, 1.11) + (6.9 / Re);
+                const invSqrtF = -1.8 * Math.log10(term);
+                const f = 1 / (invSqrtF * invSqrtF);
+
+                return f * (1 / Dh_m) * (density * v * v) / 2;
+            }
+        }
+
+        // --- CALCULATION INPUTS ---
 
         if (mode === 'velocity') {
             const v_max = parseFloat(ui.maxVelocity.value) || 0;
@@ -149,150 +180,138 @@ document.addEventListener('DOMContentLoaded', () => {
                     height = h_fix;
                     width = (area * 1e6) / height;
                 } else {
-                    // Default to Square ratio if not defined
+                    // Default to Square ratio
                     const side = Math.sqrt(area) * 1000;
-                    width = side;
-                    height = side;
+                    width = side; height = side;
                 }
             } else if (type === 'square') {
-                const side = Math.sqrt(area) * 1000;
-                width = side;
-                height = side;
+                width = Math.sqrt(area) * 1000;
+                height = width;
             } else if (type === 'circular') {
                 diameter = Math.sqrt((4 * area) / Math.PI) * 1000;
             }
 
         } else if (mode === 'dimensions') {
             if (type === 'circular') {
-                diameter = parseFloat(ui.fixedWidth.value) || 0; // reusing width input as diameter
+                diameter = parseFloat(ui.fixedWidth.value) || 0;
                 if (diameter <= 0) return;
                 area = (Math.PI * Math.pow(diameter / 1000, 2)) / 4;
             } else {
                 width = parseFloat(ui.fixedWidth.value) || 0;
                 height = parseFloat(ui.fixedHeight.value) || 0;
-                // For square, if user inputs W, H is same (or user inputs both, we take check)
                 if (type === 'square') height = width;
-
                 if (width <= 0 || (height <= 0 && type !== 'square')) return;
-
                 area = (width / 1000) * (height / 1000);
             }
-            // Calc Resulting Velocity
             velocity = Q_s / area;
 
         } else if (mode === 'pressure') {
             const dp_target = parseFloat(ui.targetPressure.value) || 0;
             if (dp_target <= 0) return;
 
-            // Iterative approach: Find Dequiv that gives DeltaP ~= Target
-            // Approximation: dP = 0.5 * v^1.86 / De^1.27  (Generic)
-            // Or use: De = [ (0.5 * Q^1.86) / dP ] ^ (1/4.99) ? 
-            // Better to iterate diameter/size until dP matches.
+            // Iteratively find size that matches dP
+            // For Rect/Square/Oval: Vary Size (assuming square aspect if not fixed)
+            // For Circular: Vary Diameter
 
-            // Heuristic for De (approx):
-            // dP ~ C * Q^1.9 / D^4.9
-            // D ~ ( C * Q^1.9 / dP ) ^ (1/5)
-            // Let's use a standard approximation for Galvanized Steel
-            // ASHRAE: dP = f * (L/D) * (rho*v^2)/2
-            // Simplification for standard air: dP_per_m = 0.091 * (Q_s^1.9) / (De_m^4.97) (Approx)
-            // ==> De_m = ( (0.091 * Q_s^1.9) / dP_target ) ^ (1/4.97)
+            // Binary Search Range (0.05m to 3.0m)
+            let minD = 0.05, maxD = 5.0;
+            let bestD = minD;
 
-            // NOTE: Coeff 0.091 is illustrative. Standard is often around that magnitude.
-            // Let's use the one from the prompt's spreadsheet logic if visible? 
-            // Spreadsheet shows Method 1: Duto = Sqrt((Q/3600)/V).
-            // Spreadsheet last row: Pa/m = 0.82.
-            // I will implement the inverse of the pressure drop function used below.
+            for (let i = 0; i < 30; i++) {
+                const midD = (minD + maxD) / 2;
+                let testA, testDh;
 
-            // Inverse of: dp = 0.02 * (v^1.9) / (De^1.1) ?? No, usually dP ~ v^2/D.
-            // Let's stick to the De calc from dP.
-
-            // Using a common metric approximation:
-            // De (m) = 0.66 * (Q(m3/s))^0.5 approx for 1 Pa/m?
-            // Let's solve: dP = Lambda * (v^2 / (2*De*rho...))
-            // I will use a robust approximation:
-            // De = [ (0.109136 * Q_s^1.9) / dp_target ] ^ (1/4.97)  (ASHRAE simplified SI)
-
-            const De_m = Math.pow((0.109136 * Math.pow(Q_s, 1.9)) / dp_target, 1 / 4.97);
-
-            // Now we have equivalent diameter. Convert to W/H/D.
-            if (type === 'circular') {
-                diameter = De_m * 1000;
-                area = Math.PI * Math.pow(De_m / 2, 2);
-            } else if (type === 'square') {
-                // De_square approx = Side (roughly). More precisely De = 1.3 * (Side^2)^0.625 / (2*Side)^0.25 = Side.
-                // Actually De = Side for square is a decent approximation but generally Side = De.
-                // De = 1.3 * (a^2)^0.625 / (2a)^0.25 = 1.3 * a^1.25 / 1.189 * a^0.25 = 1.09 * a.
-                // So Side = De / 1.09.
-                const side = (De_m / 1.09) * 1000;
-                width = side;
-                height = side;
-                area = Math.pow(side / 1000, 2);
-            } else {
-                // Rectangular: Need to fix one dimension or assume square.
-                const h_fix = parseFloat(ui.optionalHeight.value) || 0;
-                if (h_fix > 0) {
-                    // Iteratively find W that gives De.
-                    // Or simplified: De ~= 1.3 * (W*H)^0.625 / (W+H)^0.25
-                    // Hard to invert. 
-                    // Let's assume w = De initially, then iterate.
-                    // Or used equivalent Area approach? 
-                    // Let's use Area_req approx from De.
-                    // Area_circ = PI*De^2/4. 
-                    // A_rect approx = Area_circ. 
-                    // W = A / H.
-                    height = h_fix;
-                    const a_req = Math.PI * Math.pow(De_m, 2) / 4;
-                    width = (a_req * 1e6) / height;
+                if (type === 'circular') {
+                    testA = Math.PI * midD * midD / 4;
+                    testDh = midD;
                 } else {
-                    // Assume square aspect ratio
-                    const side = (De_m / 1.09) * 1000;
-                    width = side; height = side;
+                    // If rect with fixed height
+                    const h_fix = parseFloat(ui.optionalHeight.value) || 0;
+                    if (h_fix > 0 && (type === 'rectangular' || type === 'oval')) {
+                        const h_m = h_fix / 1000;
+                        // Vary Width: midD is Width
+                        let w_m = midD;
+                        testA = w_m * h_m;
+                        testDh = (2 * w_m * h_m) / (w_m + h_m);
+                    } else {
+                        // Square Aspect
+                        testA = midD * midD;
+                        testDh = midD; // For square Dh = Side
+                    }
                 }
-                area = (width / 1000) * (height / 1000);
+
+                const dP = calcPressureDrop(testA, testDh);
+
+                if (dP > dp_target) {
+                    // Too high pressure -> need larger duct
+                    minD = midD;
+                } else {
+                    maxD = midD;
+                }
+                bestD = midD; // Upper bound is safer? average.
+            }
+
+            // Set final dimensions
+            if (type === 'circular') {
+                diameter = bestD * 1000;
+                area = Math.PI * bestD * bestD / 4;
+            } else {
+                const h_fix = parseFloat(ui.optionalHeight.value) || 0;
+                if (h_fix > 0 && (type === 'rectangular' || type === 'oval')) {
+                    height = h_fix;
+                    width = bestD * 1000;
+                    area = (width / 1000) * (height / 1000);
+                } else {
+                    width = bestD * 1000;
+                    height = bestD * 1000;
+                    area = bestD * bestD;
+                }
             }
         }
 
-        // --- Recalculate Final Values ---
+        // --- FINAL CALCS & OUTPUT ---
+
+        // Ensure Dimensions
         if (velocity === 0 && area > 0) velocity = Q_s / area;
 
-        // Finalize Dimensions
+        // Finalize Shape
         if (type === 'circular') {
-            width = diameter;
-            height = diameter;
+            width = diameter; height = diameter;
         }
 
-        // Equivalent Diameter Calc
-        let De = 0; // mm
+        // Hydraulic Diameter (Dh) & Equivalent Diameter (De)
+        // Note: For pressure drop we ALREADY used Dh or re-calc it here
+        let Dh_m = 0;
+        let De = 0; // standard equivalent diameter
+
         if (type === 'circular') {
+            Dh_m = diameter / 1000;
             De = diameter;
-        } else if (type === 'oval') {
-            // Approx for Flat Oval: De = 1.55 * A^0.625 / P^0.25
-            // Perimeter P = PI*H + 2*(W-H) (if W is major axis)
-            // Area A = PI*H^2/4 + (W-H)*H
-            const A_ov = Math.PI * Math.pow(height / 1000, 2) / 4 + (width / 1000 - height / 1000) * (height / 1000); // Check formula validity
-            // Simplified: Use Hydraulic Diameter Dh = 4A/P
-            // De (pressure) approx Dh.
-            // Let's stick to Rectangular approximation for Oval unless specific formula requested.
-            // Using Rectangular formula as fallback for now.
-            const a = width; const b = height;
-            De = 1.30 * Math.pow((a * b) ** 0.625 / (a + b) ** 0.25, 1); // This formula gives De^1.25?
-            // Correct Formula: De = 1.30 * [ (a*b)^0.625 / (a+b)^0.25 ] 
-            // Wait, (a*b) in mm^2?
-            // Use meters.
-            const am = width / 1000; const bm = height / 1000;
-            const Dem = 1.30 * (Math.pow(am * bm, 0.625) / Math.pow(am + bm, 0.25));
-            De = Dem * 1000;
         } else {
-            // Rectangular/Square
-            const am = width / 1000; const bm = height / 1000;
-            const Dem = 1.30 * (Math.pow(am * bm, 0.625) / Math.pow(am + bm, 0.25));
-            De = Dem * 1000;
+            // Rect/Square
+            const a = width / 1000;
+            const b = height / 1000;
+            if (a > 0 && b > 0) {
+                Dh_m = (2 * a * b) / (a + b);
+                De = 1.30 * Math.pow((a * b) ** 0.625 / (a + b) ** 0.25, 1) * 1000;
+            }
         }
 
-        // Pressure Drop Calc
-        // Formula: dP = 0.109136 * Q^1.9 / De^4.97 (Pa/m)
-        const De_m_real = De / 1000;
-        const pressDrop = (0.109136 * Math.pow(Q_s, 1.9)) / Math.pow(De_m_real, 4.97);
+        // Oval Approx: Use Rectangular area equivalent logic or Hydraulic Diameter
+        if (type === 'oval') {
+            // Simplified to Rectangular hydraulic for robust dP
+            const a = width / 1000;
+            const b = height / 1000;
+            if (a > 0 && b > 0) {
+                Dh_m = (2 * a * b) / (a + b); // Hydraulic Diameter
+                // De approx
+                De = 1.30 * Math.pow((a * b) ** 0.625 / (a + b) ** 0.25, 1) * 1000;
+            }
+        }
+
+        // Final Pressure Drop Calc using Darcy-Weisbach
+        // Recalc with finalized dimensions
+        const pressDrop = calcPressureDrop(area, Dh_m);
 
         // Update UI
         updateResults({
@@ -320,7 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ui.resVelocity.textContent = res.velocity.toFixed(2);
         ui.resDiameter.textContent = res.De.toFixed(0);
-        ui.resPressure.textContent = res.pressDrop.toFixed(2);
+        ui.resPressure.textContent = res.pressDrop.toFixed(3); // More precision for dP
     }
 
     function clearResults() {
@@ -385,13 +404,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const calc = window.currentCalc;
 
+        // Check Aspect Ratio
+        if (calc.type === 'rectangular' || calc.type === 'oval') {
+            const w = calc.width;
+            const h = calc.height;
+            if (w > 0 && h > 0) {
+                const ratio = Math.max(w / h, h / w);
+                if (ratio > 4) {
+                    if (!confirm(`ATENÇÃO: A relação entre lados (${ratio.toFixed(1)}:1) é superior ao recomendado (4:1).\n\nDeseja salvar mesmo assim?`)) {
+                        return; // Cancel save
+                    }
+                }
+            }
+        }
+
         const segment = {
             id: state.segments.length + 1,
             flow: calc.Q_h,
             type: calc.type,
             dimensions: calc.type === 'circular' ? `Ø${calc.diameter.toFixed(0)}` : `${calc.width.toFixed(0)}x${calc.height.toFixed(0)}`,
             velocity: calc.velocity.toFixed(2),
-            pressure: calc.pressDrop.toFixed(2),
+            pressure: calc.pressDrop.toFixed(3),
             outlets: [...state.outlets],
             deduction: state.totalDeduction || 0
         };
