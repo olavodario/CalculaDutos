@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CalculaDutos - Dimensionamento de Dutos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><span class="icon">💨</span> CalculaDutos</h1>
+        </div>
+    </header>
+
+    <main class="container main-layout">
+        <!-- Left Column: Inputs & Management -->
+        <section class="input-panel">
+            <div class="card">
+                <h2>Cálculo Unitário</h2>
+                
+                <!-- Calculation Mode Selector -->
+                <div class="form-group">
+                    <label>Fixar Parâmetro:</label>
+                    <div class="toggle-group" id="calcModeToggles">
+                        <button class="active" data-mode="velocity">Velocidade</button>
+                        <button data-mode="dimensions">Dimensões</button>
+                        <button data-mode="pressure">Pressão (Pa/m)</button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <!-- Flow Input -->
+                    <div class="form-group half">
+                        <label for="flowInput">Vazão de Ar Total (m³/h)</label>
+                        <input type="number" id="flowInput" placeholder="Ex: 2500">
+                    </div>
+
+                    <!-- Duct Type -->
+                    <div class="form-group half">
+                        <label for="ductType">Tipo de Duto</label>
+                        <select id="ductType">
+                            <option value="rectangular">Retangular</option>
+                            <option value="square">Quadrado</option>
+                            <option value="circular">Circular</option>
+                            <option value="oval">Oval</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Dynamic Inputs based on Mode -->
+                <div id="dynamicInputs">
+                    <!-- Velocity Mode Inputs -->
+                    <div class="form-group" data-mode-input="velocity">
+                        <label for="maxVelocity">Velocidade Máxima (m/s)</label>
+                        <input type="number" id="maxVelocity" placeholder="Ex: 4.0" step="0.1">
+                    </div>
+
+                    <!-- Pressure Mode Inputs -->
+                    <div class="form-group hidden" data-mode-input="pressure">
+                        <label for="targetPressure">Perda de Carga Alvo (Pa/m)</label>
+                        <input type="number" id="targetPressure" placeholder="Ex: 1.0" step="0.1">
+                    </div>
+
+                    <!-- Dimensions Mode Inputs -->
+                    <div class="form-group hidden" data-mode-input="dimensions">
+                        <div class="row">
+                            <div class="half">
+                                <label for="fixedWidth">Largura (mm) <span class="unit-label" id="dim1Label">/ Diâmetro</span></label>
+                                <input type="number" id="fixedWidth" placeholder="Ex: 500">
+                            </div>
+                            <div class="half" id="heightInputContainer">
+                                <label for="fixedHeight">Altura (mm)</label>
+                                <input type="number" id="fixedHeight" placeholder="Ex: 300">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Optional Height Constraint for Rectangular/Oval in Flow/Pressure modes -->
+                <div class="form-group" id="optionalHeightGroup">
+                    <label for="optionalHeight">Altura Fixa (mm) <span class="sub-label">(Opcional para restringir cálculo)</span></label>
+                    <input type="number" id="optionalHeight" placeholder="Deixe vazio para automático">
+                </div>
+
+                <!-- Results Display (Inline for immediate feedback) -->
+                <div class="results-preview">
+                    <div class="result-item">
+                        <span class="label">Dimensões (L x A)</span>
+                        <span class="value" id="resDimensions">- x -</span>
+                        <span class="unit">mm</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Velocidade Real</span>
+                        <span class="value" id="resVelocity">-</span>
+                        <span class="unit">m/s</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Diâmetro Equiv.</span>
+                        <span class="value" id="resDiameter">-</span>
+                        <span class="unit">mm</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="label">Perda de Carga</span>
+                        <span class="value" id="resPressure">-</span>
+                        <span class="unit">Pa/m</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Outlets / Next Segment Section -->
+            <div class="card">
+                <h3>Saídas / Derivações neste Trecho</h3>
+                <div class="outlets-input-row">
+                    <input type="text" id="outletId" placeholder="Tag/ID (Ex: G1)" class="small">
+                    <select id="outletType">
+                        <option value="Difusor">Difusor</option>
+                        <option value="Grelha">Grelha</option>
+                        <option value="Outro">Outro</option>
+                    </select>
+                    <input type="number" id="outletQty" placeholder="Qtd." class="tiny" value="1">
+                    <input type="number" id="outletFlow" placeholder="Vazão Un. (m³/h)" class="medium">
+                    <button id="addOutletBtn" class="icon-btn">+</button>
+                </div>
+                
+                <div class="outlets-list" id="outletsList">
+                    <!-- Added outlets will appear here -->
+                    <div class="empty-state">Nenhuma saída adicionada neste trecho.</div>
+                </div>
+
+                <div class="segment-summary">
+                    <span>Total a Deduzir: <strong id="totalDeduction">0</strong> m³/h</span>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button id="saveSegmentBtn" class="primary-btn">↓ Salvar e Calcular Próximo</button>
+            </div>
+        </section>
+
+        <!-- Right Column: Report & Recommendations -->
+        <aside class="sidebar">
+            <!-- Segment History -->
+            <div class="card history-card">
+                <h3>Trechos Calculados</h3>
+                <div class="history-list" id="segmentsList">
+                    <!-- Saved segments -->
+                    <div class="empty-state">Nenhum trecho salvo.</div>
+                </div>
+                <div class="history-actions">
+                    <button id="generateReportBtn" class="secondary-btn">📄 Gerar Relatório</button>
+                    <!-- Hidden download anchor -->
+                    <a id="downloadLink" style="display:none"></a>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div class="card recommendations-card">
+                <h3>Recomendações de Perda de Carga (ΔP)</h3>
+                <ul class="rec-list">
+                    <li>
+                        <strong>Estúdios, Igrejas:</strong>
+                        <span>0,3 a 0,5 Pa/m</span>
+                    </li>
+                    <li>
+                        <strong>Escritórios, Salas de Aula:</strong>
+                        <span>0,6 a 1,0 Pa/m</span>
+                    </li>
+                    <li>
+                        <strong>Bancos, Corredores:</strong>
+                        <span>0,8 a 1,2 Pa/m</span>
+                    </li>
+                    <li>
+                        <strong>Shopping, Supermercados:</strong>
+                        <span>1,2 a 1,8 Pa/m</span>
+                    </li>
+                    <li>
+                        <strong>Industrial:</strong>
+                        <span>≥ 1,8 Pa/m</span>
+                    </li>
+                </ul>
+            </div>
+        </aside>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
