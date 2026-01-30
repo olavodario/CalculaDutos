@@ -136,34 +136,32 @@ document.addEventListener('DOMContentLoaded', () => {
         let velocity = 0; // m/s
         let area = 0; // m2
 
-        // Constants for Air (Standard Layout)
-        const density = 1.204; // kg/m3 (Standard Air 20°C)
-        // const density = 1.034; // Value from spreadsheet example (if High Altitude/Temp)
-        const viscosity = 1.81e-5; // Pa.s (Dynamic Viscosity 20°C)
-        const roughness = 0.00015; // m (Galvanized Steel)
+        // Constants from Spreadsheet (Specific to User Scope)
+        // DENSITY = 1.034 kg/m3 (High Altitude?)
+        // VISCOSITY = 0.00001557 Pa.s
+        // ROUGHNESS = 0.00015 m (Galvanized)
+        // SAFETY MARGIN (Accessory Loss?) = +0.35 Pa/m fixed addition
 
-        // Helper: Calc Pressure Drop (Darcy-Weisbach)
-        // Returns Pa/m
-        function calcPressureDrop(A_m2, Dh_m) {
+        const density = 1.034;
+        const viscosity = 0.00001557;
+        const roughness = 0.00015;
+        const pressureMargin = 0.35;
+
+        // Helper: Calc Friction Pressure Drop (Darcy-Weisbach)
+        // Returns Pa/m (Friction only)
+        function calcFrictionDrop(A_m2, Dh_m) {
             if (A_m2 <= 0 || Dh_m <= 0) return 0;
             const v = Q_s / A_m2;
             const Re = (density * v * Dh_m) / viscosity;
 
-            if (Re < 2300) {
-                // Laminar
-                const f = 64 / Re;
-                return f * (1 / Dh_m) * (density * v * v) / 2;
-            } else {
-                // Turbulent - Haaland Approx
-                const epsilon = roughness;
-                const relRough = (epsilon / Dh_m);
-                // 1/sqrt(f) = -1.8 * log10( (relRough/3.7)^1.11 + 6.9/Re )
-                const term = Math.pow(relRough / 3.7, 1.11) + (6.9 / Re);
-                const invSqrtF = -1.8 * Math.log10(term);
-                const f = 1 / (invSqrtF * invSqrtF);
+            // Friction Factor (Altshul-Tsal approx for turbulent/transition)
+            // f = 0.11 * ( (eps/Dh) + (68/Re) ) ^ 0.25
+            const term1 = roughness / Dh_m;
+            const term2 = 68 / Re;
+            const f = 0.11 * Math.pow(term1 + term2, 0.25);
 
-                return f * (1 / Dh_m) * (density * v * v) / 2;
-            }
+            const pd = 0.5 * density * v * v; // Dynamic Pressure
+            return f * (1 / Dh_m) * pd;
         }
 
         // --- CALCULATION INPUTS ---
@@ -206,16 +204,20 @@ document.addEventListener('DOMContentLoaded', () => {
             velocity = Q_s / area;
 
         } else if (mode === 'pressure') {
-            const dp_target = parseFloat(ui.targetPressure.value) || 0;
-            if (dp_target <= 0) return;
+            const dp_target_total = parseFloat(ui.targetPressure.value) || 0;
+            if (dp_target_total <= 0) return;
 
-            // Iteratively find size that matches dP
-            // For Rect/Square/Oval: Vary Size (assuming square aspect if not fixed)
-            // For Circular: Vary Diameter
+            // Target Friction Drop = Total Target - Margin
+            let dp_target_friction = dp_target_total - pressureMargin;
+
+            // If target is very low (below margin), we assume minimal constraint or error.
+            // But realistically we need positive friction. 
+            // Setting a minimal floor for calc loop.
+            if (dp_target_friction <= 0.001) dp_target_friction = 0.001;
 
             // Binary Search Range (0.05m to 3.0m)
             let minD = 0.05, maxD = 5.0;
-            let bestD = minD;
+            let bestD = maxD;
 
             for (let i = 0; i < 30; i++) {
                 const midD = (minD + maxD) / 2;
@@ -225,30 +227,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     testA = Math.PI * midD * midD / 4;
                     testDh = midD;
                 } else {
-                    // If rect with fixed height
                     const h_fix = parseFloat(ui.optionalHeight.value) || 0;
                     if (h_fix > 0 && (type === 'rectangular' || type === 'oval')) {
                         const h_m = h_fix / 1000;
-                        // Vary Width: midD is Width
                         let w_m = midD;
                         testA = w_m * h_m;
                         testDh = (2 * w_m * h_m) / (w_m + h_m);
                     } else {
                         // Square Aspect
                         testA = midD * midD;
-                        testDh = midD; // For square Dh = Side
+                        testDh = midD;
                     }
                 }
 
-                const dP = calcPressureDrop(testA, testDh);
+                const dP = calcFrictionDrop(testA, testDh);
 
-                if (dP > dp_target) {
-                    // Too high pressure -> need larger duct
-                    minD = midD;
+                if (dP > dp_target_friction) {
+                    minD = midD; // Drop too high -> need larger duct
                 } else {
-                    maxD = midD;
+                    maxD = midD; // Drop low -> can be smaller
                 }
-                bestD = midD; // Upper bound is safer? average.
+                bestD = midD;
             }
 
             // Set final dimensions
@@ -279,10 +278,9 @@ document.addEventListener('DOMContentLoaded', () => {
             width = diameter; height = diameter;
         }
 
-        // Hydraulic Diameter (Dh) & Equivalent Diameter (De)
-        // Note: For pressure drop we ALREADY used Dh or re-calc it here
+        // Equivalent Diameter Calc
         let Dh_m = 0;
-        let De = 0; // standard equivalent diameter
+        let De = 0;
 
         if (type === 'circular') {
             Dh_m = diameter / 1000;
@@ -297,21 +295,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Oval Approx: Use Rectangular area equivalent logic or Hydraulic Diameter
+        // Oval Approx:
         if (type === 'oval') {
-            // Simplified to Rectangular hydraulic for robust dP
             const a = width / 1000;
             const b = height / 1000;
             if (a > 0 && b > 0) {
-                Dh_m = (2 * a * b) / (a + b); // Hydraulic Diameter
-                // De approx
+                Dh_m = (2 * a * b) / (a + b);
                 De = 1.30 * Math.pow((a * b) ** 0.625 / (a + b) ** 0.25, 1) * 1000;
             }
         }
 
-        // Final Pressure Drop Calc using Darcy-Weisbach
-        // Recalc with finalized dimensions
-        const pressDrop = calcPressureDrop(area, Dh_m);
+        // Final Pressure Drop Calc
+        const pressDropFric = calcFrictionDrop(area, Dh_m);
+        const totalPressDrop = pressDropFric + pressureMargin;
 
         // Update UI
         updateResults({
@@ -320,13 +316,13 @@ document.addEventListener('DOMContentLoaded', () => {
             diameter: diameter,
             velocity: velocity,
             De: De,
-            pressDrop: pressDrop,
+            pressDrop: totalPressDrop,
             ductType: type
         });
 
-        // Store current calculation results for saving
+        // Store
         window.currentCalc = {
-            width, height, diameter, velocity, De, pressDrop, Q_h, type
+            width, height, diameter, velocity, De, pressDrop: totalPressDrop, Q_h, type
         };
     }
 
@@ -339,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ui.resVelocity.textContent = res.velocity.toFixed(2);
         ui.resDiameter.textContent = res.De.toFixed(0);
-        ui.resPressure.textContent = res.pressDrop.toFixed(3); // More precision for dP
+        ui.resPressure.textContent = res.pressDrop.toFixed(3);
     }
 
     function clearResults() {
