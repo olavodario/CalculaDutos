@@ -154,11 +154,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const v = Q_s / A_m2;
             const Re = (density * v * Dh_m) / viscosity;
 
-            // Friction Factor (Altshul-Tsal approx for turbulent/transition)
-            // f = 0.11 * ( (eps/Dh) + (68/Re) ) ^ 0.25
+            // Friction Factor Formula (Replicated from User Spreadsheet)
+            // Note: Standard Altshul-Tsal puts exponent on the sum. 
+            // Spreadsheet formula: f = 0.11 * ( (eps/Dh) + (68/Re)^0.25 )
+
             const term1 = roughness / Dh_m;
-            const term2 = 68 / Re;
-            const f = 0.11 * Math.pow(term1 + term2, 0.25);
+            const term2 = Math.pow(68 / Re, 0.25);
+
+            const f = 0.11 * (term1 + term2);
 
             const pd = 0.5 * density * v * v; // Dynamic Pressure
             return f * (1 / Dh_m) * pd;
@@ -211,8 +214,6 @@ document.addEventListener('DOMContentLoaded', () => {
             let dp_target_friction = dp_target_total - pressureMargin;
 
             // If target is very low (below margin), we assume minimal constraint or error.
-            // But realistically we need positive friction. 
-            // Setting a minimal floor for calc loop.
             if (dp_target_friction <= 0.001) dp_target_friction = 0.001;
 
             // Binary Search Range (0.05m to 3.0m)
